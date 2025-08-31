@@ -2,85 +2,45 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE     = "hotstarimage"
-        CONTAINER_NAME   = "hotstarcont"
-        WAR_NAME         = "myapp.war"   // change if your WAR name is different
-        JENKINS_CONT     = "jenkinscont" // your Jenkins container name
-        JOB_NAME         = "hotstar"     // your Jenkins job name (workspace folder)
+        DOCKER_IMAGE = "hotstarimg"
+        CONTAINER_NAME = "hotstarcont"
     }
 
     stages {
-        stage('Checkout') {
+        stage('Checkout Code') {
             steps {
-                    url: 'https://github.com/SukeshKaicharla/java-project-maven-new.git'
+                git branch: 'master', url: 'https://github.com/SukeshKaicharla/java-project-maven-new.git'
             }
         }
 
-        stage('Build WAR with Maven') {
+        stage('Build with Maven') {
             steps {
                 sh 'mvn clean install'
             }
         }
 
-        stage('Copy Artifact from Jenkins Container') {
+        stage('Build Docker Image') {
             steps {
-                script {
-                    sh """
-                        echo "📦 Checking for WAR file inside Jenkins container..."
-                        docker exec ${JENKINS_CONT} ls /var/jenkins_home/workspace/${JOB_NAME}/target || true
-                        
-                        echo "📥 Copying WAR file from Jenkins container to host workspace..."
-                        docker cp ${JENKINS_CONT}:/var/jenkins_home/workspace/${JOB_NAME}/target/${WAR_NAME} .
-                    """
-                }
+                sh 'docker build -t $DOCKER_IMAGE .'
             }
         }
 
-        stage('Build Custom Docker Image') {
+        stage('Run Docker Container') {
             steps {
-                script {
-                    writeFile file: 'Dockerfile', text: """
-                    # Use official Tomcat base image
-                    FROM tomcat:9.0-jdk11
-
-                    # Remove default apps
-                    RUN rm -rf /usr/local/tomcat/webapps/*
-
-                    # Copy your WAR file into webapps directory
-                    COPY ${WAR_NAME} /usr/local/tomcat/webapps/ROOT.war
-
-                    # Expose port 8080
-                    EXPOSE 8080
-
-                    # Start Tomcat
-                    CMD ["catalina.sh", "run"]
-                    """
-                    sh "docker build -t ${DOCKER_IMAGE} ."
-                }
-            }
-        }
-
-        stage('Run Application Container') {
-            steps {
-                script {
-                    sh """
-                        echo "🛑 Removing old container if exists..."
-                        docker rm -f ${CONTAINER_NAME} || true
-                        
-                        echo "🚀 Running new container..."
-                        docker run -itd --name ${CONTAINER_NAME} -p 8099:8080 ${DOCKER_IMAGE}
-                    """
-                }
+                sh '''
+                    echo "Starting new container..."
+                    docker run -itd --name $CONTAINER_NAME -p 9090:8080 $DOCKER_IMAGE
+                '''
             }
         }
     }
 
     post {
         success {
-            echo "✅ Application deployed successfully. Access it via <EC2_Public_IP>:8099"
+            echo "Application is running on http://<server-ip>:9090"
         }
-        always {
-            sh "docker ps -a"
+        failure {
+            echo "Pipeline failed. Check logs."
         }
     }
 }
